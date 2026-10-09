@@ -1,5 +1,23 @@
 #!/bin/bash -Eeu
 
+# The versions this image holds. They are pinned, not resolved, because the
+# start-point's go.mod names exact versions and a kata runs with no network:
+# a version the start-point names but the image lacks makes go try to download
+# it, and every light comes out amber. The image is rebuilt every week under
+# the same tag, so letting go mod tidy pick the newest release drifts the
+# image away from the start-point the first week ginkgo or gomega publishes.
+# Raising one of these means raising the start-point's go.mod to match.
+readonly GINKGO_VERSION=2.33.0
+readonly GOMEGA_VERSION=1.44.0
+
+# Requires exactly the pinned versions in the module in the current dir. go
+# mod tidy then keeps them, and resolves every indirect dependency from them,
+# so the whole module graph is fixed by these two numbers.
+require_pinned_versions()
+{
+  go get "github.com/onsi/ginkgo/v2@v${GINKGO_VERSION}" "github.com/onsi/gomega@v${GOMEGA_VERSION}"
+}
+
 mkdir cdl && cd cdl
 
 go mod init cdl-go-ginkgo
@@ -14,6 +32,7 @@ EOF
 
 # Download ginkgo, gomega and all their deps, update go.mod with versions and
 # go.sum with hashes
+require_pinned_versions
 go mod tidy
 
 # Pre-compile them into a shared build cache accessible by all users
@@ -75,6 +94,7 @@ var _ = Describe("answer", func() {
 })
 EOF
 
+require_pinned_versions
 go mod tidy
 GOCACHE=/go/build-cache go test
 
@@ -108,13 +128,6 @@ fi
 
 # Read by check_version.sh and by anything else that needs to state what this
 # image holds, rather than repeating a number written down somewhere else.
-# The versions are the ones go mod tidy resolved, read back from go.mod.
-version_of()
-{
-  grep "${1} " go.mod | awk '{print $2}' | sed 's|^v||'
-}
-readonly GINKGO_VERSION=$(version_of github.com/onsi/ginkgo/v2)
-readonly GOMEGA_VERSION=$(version_of github.com/onsi/gomega)
 echo "{\"ginkgo\":\"${GINKGO_VERSION}\",\"gomega\":\"${GOMEGA_VERSION}\"}" > /versions.json
 
 cd ..
