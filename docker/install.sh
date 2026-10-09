@@ -12,7 +12,8 @@ readonly GOMEGA_VERSION=1.44.0
 
 # Requires exactly the pinned versions in the module in the current dir. go
 # mod tidy then keeps them, and resolves every indirect dependency from them,
-# so the whole module graph is fixed by these two numbers.
+# so the whole module graph is fixed by these two numbers. Do not drop a call
+# to this before a go mod tidy: tidy alone takes the newest ginkgo and gomega.
 require_pinned_versions()
 {
   go get "github.com/onsi/ginkgo/v2@v${GINKGO_VERSION}" "github.com/onsi/gomega@v${GOMEGA_VERSION}"
