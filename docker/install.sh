@@ -1,27 +1,47 @@
 #!/bin/bash -Eeu
 
-# The versions this image holds. They are pinned, not resolved, because the
-# start-point's go.mod names exact versions and a kata runs with no network:
-# a version the start-point names but the image lacks makes go try to download
-# it, and every light comes out amber. The image is rebuilt every week under
-# the same tag, so letting go mod tidy pick the newest release drifts the
-# image away from the start-point the first week ginkgo or gomega publishes.
-# Raising one of these means raising the start-point's go.mod to match.
-readonly GINKGO_VERSION=2.33.0
-readonly GOMEGA_VERSION=1.44.0
-
-# Requires exactly the pinned versions in the module in the current dir. go
-# mod tidy then keeps them, and resolves every indirect dependency from them,
-# so the whole module graph is fixed by these two numbers. Do not drop a call
-# to this before a go mod tidy: tidy alone takes the newest ginkgo and gomega.
-require_pinned_versions()
+# Appends one test framework to the test_frameworks list the base image
+# wrote in /versions.json, keeping any entry an earlier image added. Stops
+# the build if the list is not found, rather than record nothing. Short grep
+# flags because busybox grep has no long ones.
+add_test_framework()
 {
-  go get "github.com/onsi/ginkgo/v2@v${GINKGO_VERSION}" "github.com/onsi/gomega@v${GOMEGA_VERSION}"
+  local -r name="${1}"
+  local -r version="${2}"
+  local -r entry="{\"name\": \"${name}\", \"version\": \"${version}\"}"
+  if grep -q '"test_frameworks": \[\]' /versions.json; then
+    sed -i "s|\"test_frameworks\": \[\]|\"test_frameworks\": [${entry}]|" /versions.json
+  else
+    sed -i "/\"test_frameworks\": \[/s|}\]|}, ${entry}]|" /versions.json
+  fi
+  if ! grep -q -F "${entry}" /versions.json; then
+    echo "Could not add ${name} to /versions.json" >&2
+    cat /versions.json >&2
+    exit 1
+  fi
 }
 
 mkdir cdl && cd cdl
 
 go mod init cdl-go-ginkgo
+
+# The newest ginkgo and gomega releases, resolved once here at build time.
+# Every later module in this build requires exactly these, so the image holds
+# one version of each. A kata runs with no network, so the start-point's
+# go.mod and go.sum must name these same versions; they are printed at the end
+# of this build for the start-point's copies to be updated to match.
+go get github.com/onsi/ginkgo/v2@latest github.com/onsi/gomega@latest
+readonly GINKGO_VERSION=$(go list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+readonly GOMEGA_VERSION=$(go list -m -f '{{.Version}}' github.com/onsi/gomega)
+
+# Requires exactly the resolved versions in the module in the current dir. go
+# mod tidy then keeps them, and resolves every indirect dependency from them,
+# so the whole module graph is fixed by these two versions. Do not drop a call
+# to this before a go mod tidy: tidy alone could take a newer release.
+require_pinned_versions()
+{
+  go get "github.com/onsi/ginkgo/v2@${GINKGO_VERSION}" "github.com/onsi/gomega@${GOMEGA_VERSION}"
+}
 
 cat > dummy.go << 'EOF'
 package cdl
@@ -127,9 +147,18 @@ if [ "$(echo "${COLD_SECONDS} > ${WARM_SECONDS} * 3" | bc -l)" != '1' ]; then
   exit 42
 fi
 
-# Read by check_version.sh and by anything else that needs to state what this
-# image holds, rather than repeating a number written down somewhere else.
-echo "{\"ginkgo\":\"${GINKGO_VERSION}\",\"gomega\":\"${GOMEGA_VERSION}\"}" > /versions.json
+add_test_framework ginkgo "${GINKGO_VERSION#v}"
+add_test_framework gomega "${GOMEGA_VERSION#v}"
+cat /versions.json
+
+# The start-point's go.mod and go.sum must require exactly what this image
+# holds. These are printed between markers so they can be copied from the
+# build log into the start-point whenever a rebuild picks up a new release.
+echo '--- start-point go.mod requires ---'
+sed -n '/^require/,$p' go.mod
+echo '--- start-point go.sum ---'
+cat go.sum
+echo '--- end ---'
 
 cd ..
 rm -rf warmup

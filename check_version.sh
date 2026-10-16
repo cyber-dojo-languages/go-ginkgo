@@ -6,14 +6,14 @@ readonly JSON=`cat docker/image_name.json`
 [[ ${JSON} =~ ${REGEX} ]]
 readonly IMAGE_NAME="${BASH_REMATCH[1]}"
 
-# install.sh pins ginkgo and gomega and records them in /versions.json, so the
-# versions are read from the image rather than written down a second time here.
+# install.sh records ginkgo and gomega in /versions.json's test_frameworks, so
+# the versions are read from the image rather than written down a second time.
 readonly VERSIONS=$(docker run --rm -i ${IMAGE_NAME} sh -c 'cat /versions.json')
 
 for library in ginkgo gomega; do
-  regex="\"${library}\":\"([0-9.]+)\""
+  regex="\"name\": \"${library}\", \"version\": \"([0-9.]+)\""
   if [[ ! ${VERSIONS} =~ ${regex} ]]; then
-    echo "VERSION ERROR: /versions.json has no ${library} property"
+    echo "VERSION ERROR: /versions.json has no ${library} test framework"
     echo "VERSION   FILE: ${VERSIONS}"
     exit 42
   fi
